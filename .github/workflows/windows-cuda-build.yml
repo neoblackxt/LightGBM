@@ -1,0 +1,118 @@
+name: Windows CUDA build (PR validation)
+
+# Fork-side CI for upstream-PR branches. Intra-fork pull requests
+# (feature branch -> main, or findnccl-windows -> windows-cuda-no-nccl)
+# trigger this workflow from main's copy, so the workflow itself never
+# appears in the upstream PR diffs.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # One architecture keeps PR feedback fast; arch-specific regressions are
+  # caught by the release CI of the build repo (Turing..Blackwell matrix).
+  CUDAARCHS: '89'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Activate MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Restore CUDA Toolkit cache
+        id: cache-cuda
+        uses: actions/cache/restore@v6
+        with:
+          path: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
+          key: cuda-13.3.0-windows-x64-installed-v1
+
+      - name: Install CUDA Toolkit 13.3
+        if: steps.cache-cuda.outputs.cache-hit != 'true'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '13.3.0'
+          method: local
+          use-github-cache: false
+
+      - name: Save CUDA Toolkit cache
+        # save right after install: actions/cache's post-save is skipped when a
+        # later step fails, which is why the cache never populated before
+        if: steps.cache-cuda.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
+          key: cuda-13.3.0-windows-x64-installed-v1
+        continue-on-error: true
+
+      - name: Set CUDA environment
+        shell: pwsh
+        run: |
+          $cuda = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3"
+          if (-not (Test-Path "$cuda\bin\nvcc.exe")) { throw "nvcc not found at $cuda" }
+          echo "CUDA_PATH=$cuda" >> $env:GITHUB_ENV
+          echo "$cuda\bin" >> $env:GITHUB_PATH
+
+      - name: Build CLI
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES="${CUDAARCHS}" \
+            -DCMAKE_CUDA_COMPILER="$CUDA_PATH/bin/nvcc.exe"
+          cmake --build build -j
+          ls -la lightgbm.exe lib_lightgbm.dll
+
+      - name: Build Python wheel
+        shell: bash
+        env:
+          CMAKE_GENERATOR: Ninja
+        run: |
+          export CUDACXX="$CUDA_PATH/bin/nvcc.exe"
+          python -m pip install --upgrade pip build scikit-build-core ninja
+          sh build-python.sh bdist_wheel --cuda --no-isolation
+          ls dist/
+
+      - name: Smoke test wheel
+        shell: bash
+        run: |
+          python -m pip install dist/lightgbm*.whl
+          python - <<'PY'
+          import numpy as np
+          import lightgbm as lgb
+          print("lightgbm", lgb.__version__)
+          # GPU learners must NOT be executed here: this runner has no GPU and
+          # CUDA init fatals process-wide. Instead verify the learner is
+          # COMPILED IN via binary strings.
+          dll = open(lgb.basic._LIB._name, "rb").read()
+          assert b"CUDA Tree Learner was not enabled" not in dll, "CUDA learner missing"
+          rng = np.random.RandomState(0)
+          X = rng.randn(2000, 10).astype(np.float32)
+          y = (X[:, 0] > 0).astype(np.int32)
+          bst = lgb.train({"objective": "binary", "num_leaves": 15, "verbose": -1},
+                          lgb.Dataset(X, label=y), num_boost_round=10)
+          assert bst.predict(X[:10]).shape == (10,)
+          print("SMOKE_OK (cpu trained; cuda learner compiled in)")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-cuda-${{ github.event.pull_request.number || github.run_number }}
+          path: |
+            lightgbm.exe
+            lib_lightgbm.dll
+          if-no-files-found: error
