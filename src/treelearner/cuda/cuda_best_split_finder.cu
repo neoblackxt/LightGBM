@@ -1182,7 +1182,9 @@ __device__ void FindBestSplitsForLeafKernelInner_GlobalMemory(
             sum_right_hessian, lambda_l1,
             lambda_l2, path_smooth, left_count, right_count, parent_output);
           // gain with split is worse than without split
-          if (current_gain > min_gain_shift) {
+          // each thread strided over multiple bins must keep its BEST
+          // candidate, not the last one that merely clears the bar
+          if (current_gain > min_gain_shift && current_gain - min_gain_shift > local_gain) {
             local_gain = current_gain - min_gain_shift;
             threshold_value = static_cast<uint32_t>(task->num_bin - 2 - bin);
             threshold_found = true;
@@ -1210,7 +1212,8 @@ __device__ void FindBestSplitsForLeafKernelInner_GlobalMemory(
             sum_right_hessian, lambda_l1,
             lambda_l2, path_smooth, left_count, right_count, parent_output);
           // gain with split is worse than without split
-          if (current_gain > min_gain_shift) {
+          // keep the thread's best candidate, not the last qualifying one
+          if (current_gain > min_gain_shift && current_gain - min_gain_shift > local_gain) {
             local_gain = current_gain - min_gain_shift;
             threshold_value = (task->na_as_missing && task->mfb_offset == 1) ?
               bin : static_cast<uint32_t>(bin + task->mfb_offset);
@@ -1358,7 +1361,7 @@ __device__ void FindBestSplitsForLeafKernelCategoricalInner_GlobalMemory(
               sum_other_gradient, sum_other_hessian, grad,
               hess + kEpsilon, lambda_l1,
               l2, path_smooth, other_count, cnt, parent_output);
-            if (current_gain > min_gain_shift) {
+            if (current_gain > min_gain_shift && current_gain - min_gain_shift > local_gain) {
               best_threshold = bin;
               local_gain = current_gain - min_gain_shift;
               threshold_found = true;
@@ -1471,7 +1474,8 @@ __device__ void FindBestSplitsForLeafKernelCategoricalInner_GlobalMemory(
           sum_right_hessian, lambda_l1,
           l2, path_smooth, left_count, right_count, parent_output);
         // gain with split is worse than without split
-        if (current_gain > min_gain_shift) {
+        // keep the thread's best candidate across both directions
+        if (current_gain > min_gain_shift && current_gain - min_gain_shift > local_gain) {
           local_gain = current_gain - min_gain_shift;
           threshold_found = true;
           best_dir = 1;
@@ -1510,7 +1514,8 @@ __device__ void FindBestSplitsForLeafKernelCategoricalInner_GlobalMemory(
           sum_right_hessian, lambda_l1,
           l2, path_smooth, left_count, right_count, parent_output);
         // gain with split is worse than without split
-        if (current_gain > min_gain_shift) {
+        // keep the thread's best candidate across both directions
+        if (current_gain > min_gain_shift && current_gain - min_gain_shift > local_gain) {
           local_gain = current_gain - min_gain_shift;
           threshold_found = true;
           best_dir = -1;
