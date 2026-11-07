@@ -240,7 +240,23 @@ if(__INTEGRATE_OPENCL)
 endif()
 
 if(USE_CUDA)
+    if(WIN32 AND NOT DEFINED BUILD_WITH_SHARED_NCCL)
+      # On Windows, a real NCCL (e.g. built from NVIDIA's source tree) is
+      # linked as a shared library: the static objects are built with /MT,
+      # which conflicts with the /MD runtime used by the bindings, and the
+      # static archive additionally requires nccl_device.lib.
+      set(BUILD_WITH_SHARED_NCCL ON)
+    endif()
     find_package(NCCL QUIET)
+    if(NCCL_FOUND AND WIN32)
+      # A real NCCL was found (e.g. via NCCL_ROOT). The header dir must be
+      # global: some translation units include <nccl.h> via cuda_utils.hu from
+      # object libraries that do not link NCCL::NCCL (verified empirically:
+      # relying on the imported target's INTERFACE includes alone fails the
+      # python build with C1083 on cuda_utils.hu).
+      include_directories(${NCCL_INCLUDE_DIR})
+      message(STATUS "NCCL found - linking real NCCL (multi-GPU supported)")
+    endif()
     if(NOT NCCL_FOUND)
       # NCCL has no official Windows distribution. Every NCCL call site in
       # LightGBM is only reached when num_gpu > 1 (Boosting::CreateBoosting),
