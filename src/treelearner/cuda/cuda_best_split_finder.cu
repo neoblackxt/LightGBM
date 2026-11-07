@@ -152,6 +152,9 @@ __device__ void FindBestSplitsForLeafKernelInner(
   const double min_gain_shift = parent_gain + min_gain_to_split;
 
   cuda_best_split_info->is_valid = false;
+  // numeric splits must not inherit a stale num_cat_threshold from buffer
+  // memory, or the host may take the categorical-bitset path on them
+  cuda_best_split_info->num_cat_threshold = 0;
 
   hist_t local_grad_hist = 0.0f;
   hist_t local_hess_hist = 0.0f;
@@ -353,6 +356,7 @@ __device__ void FindBestSplitsDiscretizedForLeafKernelInner(
   const double min_gain_shift = parent_gain + min_gain_to_split;
 
   cuda_best_split_info->is_valid = false;
+  cuda_best_split_info->num_cat_threshold = 0;
 
   ACC_HIST_TYPE local_grad_hess_hist = 0;
   double local_gain = 0.0f;
@@ -1090,6 +1094,9 @@ __device__ void FindBestSplitsForLeafKernelInner_GlobalMemory(
   const double min_gain_shift = parent_gain + min_gain_to_split;
 
   cuda_best_split_info->is_valid = false;
+  // numeric splits must not inherit a stale num_cat_threshold from buffer
+  // memory, or the host may take the categorical-bitset path on them
+  cuda_best_split_info->num_cat_threshold = 0;
   double local_gain = 0.0f;
   bool threshold_found = false;
   uint32_t threshold_value = 0;
