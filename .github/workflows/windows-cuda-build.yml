@@ -1,9 +1,8 @@
 name: Windows CUDA build (PR validation)
 
 # Fork-side CI for upstream-PR branches. Intra-fork pull requests
-# (feature branch -> main, or findnccl-windows -> windows-cuda-no-nccl)
-# trigger this workflow from main's copy, so the workflow itself never
-# appears in the upstream PR diffs.
+# targeting main use main's copy of this workflow, keeping CI-only changes
+# out of the upstream PR diffs.
 
 on:
   pull_request:
@@ -29,6 +28,26 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Merge PR1 branch for stacked validation
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.head_ref != '' &&
+          github.head_ref != 'windows-cuda-no-nccl' &&
+          github.head_ref != 'main'
+        shell: bash
+        run: |
+          # Add PR1's build fixes only to this CI checkout; neither the PR
+          # branch nor the diff submitted upstream is changed by this merge.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin windows-cuda-no-nccl
+          if ! git merge --no-edit FETCH_HEAD; then
+            echo "::error::Failed to merge windows-cuda-no-nccl (PR1) into ${GITHUB_HEAD_REF} for stacked validation."
+            exit 1
+          fi
+          # PR1 updates the fmt gitlink, so synchronize it after moving HEAD.
+          git submodule update --init --recursive
 
       - name: Activate MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
