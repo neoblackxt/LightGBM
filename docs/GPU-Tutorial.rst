@@ -174,6 +174,8 @@ Further Reading
 
 - `GPU SDK Correspondence and Device Targeting Table <./GPU-Targets.rst>`__
 
+- `GPU on Windows <./GPU-Windows.rst>`__
+
 Reference
 ---------
 

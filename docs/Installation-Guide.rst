@@ -701,13 +701,28 @@ Build CUDA Version
 The `original GPU version <#build-gpu-version>`__ of LightGBM (``device_type=gpu``) is based on OpenCL, and only computes histograms on GPUs, with other parts of training in CPUs.
 
 The CUDA-based version (``device_type=cuda``) is a separate implementation that runs significantly faster by putting all the training process on GPUs. It also supports multi-GPU, and multi-node multi-GPU training.
-Use this version in Linux environments with an NVIDIA GPU with compute capability 6.0 or higher.
+Use this version in Linux or Windows environments with an NVIDIA GPU with compute capability 6.0 or higher.
 
 Windows
 ^^^^^^^
 
-The CUDA version is not supported on Windows.
-Use the `GPU version <#build-gpu-version>`__ (``device_type=gpu``) for GPU acceleration on Windows.
+On Windows, a CUDA version of LightGBM can be built with **Visual Studio 2022 (or newer)**,
+**CMake** and the **CUDA Toolkit**.
+
+Since NCCL has no Windows distribution, the build falls back to a bundled NCCL stub
+when no real NCCL is found. That is sufficient for single-GPU training: every NCCL
+call site is only reached when ``num_gpu > 1``. See `GPU on Windows <./GPU-Windows.rst>`__
+for details, including how to link a real NCCL for multi-GPU (``num_gpu > 1``) training.
+
+.. code:: sh
+
+   cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DUSE_CUDA=ON
+   cmake --build build --config Release
+
+   # or, with Ninja from a "x64 Native Tools" developer prompt:
+   # cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_CUDA=ON
+
+The same ``CMAKE_CUDA_ARCHITECTURES`` notes as for Linux below apply.
 
 Linux
 ^^^^^
