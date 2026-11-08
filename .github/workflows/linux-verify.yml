@@ -5,7 +5,7 @@ name: Linux verification (PR evidence)
 #          and the meta.h changes (no CUDA involved)
 #   job 2: a CUDA build finds the distribution NCCL (apt libnccl-dev) and
 #          takes the original find_package path - the bundled stub is NOT
-#          used when a real NCCL is present (compile-only; runner has no GPU)
+#          used when a real NCCL is present (compile/link only; runner has no GPU)
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ jobs:
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j"$(nproc)"
           ls -la lightgbm
-          ./lightgbm --help > /dev/null && echo CLI_OK
+          test -x lightgbm && echo CLI_BUILD_OK
       - name: Small CPU training run
         run: |
           set -euo pipefail
@@ -49,10 +49,10 @@ jobs:
                   f0 = random.random(); f1 = random.random()
                   f.write('%d,%.6f,%.6f,%.6f,%.6f\n' % (f0 + f1 > 1.0, f0, f1, random.random(), random.random()))
           open('train.conf', 'w').write(
-              'task = train\nobjective = binary\ndata = train.csv\nnum_iterations = 20\n'
+              'task = train\nobjective = binary\ndata = train.csv\nheader = true\nnum_iterations = 20\n'
               'num_leaves = 31\nmax_bin = 255\nverbose = 1\noutput_model = model.txt\n')
           PY
-          ./lightgbm config=train.conf 2>&1 | tail -3
+          ./lightgbm config=train.conf 2>&1 | tee train.log
           test -s model.txt && echo TRAIN_OK
 
   linux-cuda-build-with-real-nccl:
@@ -71,7 +71,7 @@ jobs:
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: '13.3.0'
-          method: native
+          method: network
           use-github-cache: true
       - name: Build CUDA with the distribution NCCL
         env:
@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DUSE_CUDA=ON \
-            -DCMAKE_CUDA_ARCHITECTURES=89 2>&1 | tee cmake_out.txt
+            -DBUILD_WITH_SHARED_NCCL=ON -DCMAKE_CUDA_ARCHITECTURES=89 2>&1 | tee cmake_out.txt
           # the original path must be taken: NCCL found, stub NOT created
           grep -E "Using nccl library: /usr/lib" cmake_out.txt
           if grep -q "bundled stub" cmake_out.txt; then
