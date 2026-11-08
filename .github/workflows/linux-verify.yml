@@ -53,7 +53,10 @@ jobs:
               'num_leaves = 31\nmax_bin = 255\nverbose = 1\noutput_model = model.txt\n')
           PY
           ./lightgbm config=train.conf 2>&1 | tee train.log
-          test -s model.txt && echo TRAIN_OK
+          test -s model.txt
+          grep -q "Finished training" train.log
+          test "$(grep -c '^Tree=' model.txt)" -eq 20
+          echo TRAIN_OK
 
   linux-cuda-build-with-real-nccl:
     runs-on: ubuntu-latest
@@ -82,12 +85,12 @@ jobs:
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DUSE_CUDA=ON \
             -DBUILD_WITH_SHARED_NCCL=ON -DCMAKE_CUDA_ARCHITECTURES=89 2>&1 | tee cmake_out.txt
           # the original path must be taken: NCCL found, stub NOT created
-          grep -E "Using nccl library: /usr/lib" cmake_out.txt
-          if grep -q "bundled stub" cmake_out.txt; then
+          grep -E "Using nccl library: /usr/lib/.*/libnccl\.so$" cmake_out.txt
+          if grep -q "bundled NCCL stub" cmake_out.txt; then
             echo "FAIL: stub was used although a real NCCL is installed"; exit 1
           fi
           cmake --build build -j"$(nproc)"
           ls -la lightgbm lib_lightgbm.so
           # link evidence: the binary depends on the distribution libnccl
-          ldd lib_lightgbm.so | grep -i nccl
+          ldd lib_lightgbm.so | grep -E "libnccl\.so.* => /(usr/)?lib/"
           echo LINUX_CUDA_REAL_NCCL_OK
