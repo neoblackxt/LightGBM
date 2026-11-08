@@ -1,0 +1,93 @@
+name: Linux verification (PR evidence)
+
+# Evidence for upstream PR #7522: proves on Linux (gcc) that
+#   job 1: CPU build + a small training run work with the fmt 12.2.0 bump
+#          and the meta.h changes (no CUDA involved)
+#   job 2: a CUDA build finds the distribution NCCL (apt libnccl-dev) and
+#          takes the original find_package path - the bundled stub is NOT
+#          used when a real NCCL is present (compile-only; runner has no GPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/ref to verify'
+        default: 'windows-cuda-no-nccl'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-cpu-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'windows-cuda-no-nccl' }}
+          submodules: recursive
+      - run: |
+          sudo apt-get update -q && sudo apt-get install -y -q cmake g++
+          cmake --version | head -1; g++ --version | head -1
+      - name: Build (CPU only, no CUDA)
+        run: |
+          set -euo pipefail
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ls -la lightgbm
+          ./lightgbm --help > /dev/null && echo CLI_OK
+      - name: Small CPU training run
+        run: |
+          set -euo pipefail
+          cd build 2>/dev/null || true
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import random
+          random.seed(7)
+          with open('train.csv', 'w') as f:
+              f.write('label,f0,f1,f2,f3\n')
+              for i in range(5000):
+                  f0 = random.random(); f1 = random.random()
+                  f.write('%d,%.6f,%.6f,%.6f,%.6f\n' % (f0 + f1 > 1.0, f0, f1, random.random(), random.random()))
+          open('train.conf', 'w').write(
+              'task = train\nobjective = binary\ndata = train.csv\nnum_iterations = 20\n'
+              'num_leaves = 31\nmax_bin = 255\nverbose = 1\noutput_model = model.txt\n')
+          PY
+          ./lightgbm config=train.conf 2>&1 | tail -3
+          test -s model.txt && echo TRAIN_OK
+
+  linux-cuda-build-with-real-nccl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'windows-cuda-no-nccl' }}
+          submodules: recursive
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake g++-12 gcc-12 libnccl-dev libnccl2
+          dpkg -l | grep -i nccl | head -3
+      - name: Install CUDA Toolkit 13.3
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '13.3.0'
+          method: native
+          use-github-cache: true
+      - name: Build CUDA with the distribution NCCL
+        env:
+          CC: gcc-12
+          CXX: g++-12
+        run: |
+          set -euo pipefail
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DUSE_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES=89 2>&1 | tee cmake_out.txt
+          # the original path must be taken: NCCL found, stub NOT created
+          grep -E "Using nccl library: /usr/lib" cmake_out.txt
+          if grep -q "bundled stub" cmake_out.txt; then
+            echo "FAIL: stub was used although a real NCCL is installed"; exit 1
+          fi
+          cmake --build build -j"$(nproc)"
+          ls -la lightgbm lib_lightgbm.so
+          # link evidence: the binary depends on the distribution libnccl
+          ldd lib_lightgbm.so | grep -i nccl
+          echo LINUX_CUDA_REAL_NCCL_OK
