@@ -209,6 +209,20 @@ Build CUDA Version
 
     pip install lightgbm --no-binary lightgbm --config-settings=cmake.define.USE_CUDA=ON
 
+Multi-GPU support is enabled by default and requires NCCL.
+To build only single-GPU support without NCCL, disable it explicitly:
+
+.. code:: sh
+
+    pip install \
+      --no-binary lightgbm \
+      --config-settings=cmake.define.USE_CUDA=ON \
+      --config-settings=cmake.define.ENABLE_MULTI_GPU=OFF \
+      lightgbm
+
+When building from a source checkout, the equivalent helper-script option is
+``sh ./build-python.sh bdist_wheel --cuda --no-multi-gpu``.
+Single-GPU-only builds reject GBDT training requests with ``device_type=cuda`` and ``num_gpu>1``.
 
 By default, the library will be built with support for a hard-coded list of GPU architectures
 based on the detected CUDA Toolkit version.
@@ -233,7 +247,8 @@ To build the library with support for more architectures, set ``CMAKE_CUDA_ARCHI
 
 All requirements from `Build from Sources section <#build-from-sources>`__ apply for this installation option as well.
 
-For **macOS** and **Windows** users, the CUDA version is not supported.
+For **macOS** users, the CUDA version is not supported.
+On **Windows**, use ``ENABLE_MULTI_GPU=OFF``; multi-GPU training requires NCCL and is not supported.
 
 **CUDA** library is needed: details for installation can be found in `Installation Guide <https://github.com/lightgbm-org/LightGBM/blob/main/docs/Installation-Guide.rst#build-cuda-version>`__.
 
