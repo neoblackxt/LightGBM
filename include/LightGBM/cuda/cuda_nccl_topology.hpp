@@ -7,7 +7,7 @@
 #ifndef LIGHTGBM_INCLUDE_LIGHTGBM_CUDA_CUDA_NCCL_TOPOLOGY_HPP_
 #define LIGHTGBM_INCLUDE_LIGHTGBM_CUDA_CUDA_NCCL_TOPOLOGY_HPP_
 
-#ifdef USE_CUDA
+#ifdef USE_MULTI_GPU
 
 #ifdef USE_ROCM
 #include <rccl/rccl.h>
@@ -229,6 +229,6 @@ class NCCLTopology {
 
 }  // namespace LightGBM
 
-#endif  // USE_CUDA
+#endif  // USE_MULTI_GPU
 
 #endif  // LIGHTGBM_INCLUDE_LIGHTGBM_CUDA_CUDA_NCCL_TOPOLOGY_HPP_

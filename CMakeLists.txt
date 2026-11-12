@@ -11,6 +11,7 @@ option(USE_SWIG "Enable SWIG to generate Java API" OFF)
 option(USE_TIMETAG "Set to ON to output time costs" OFF)
 option(USE_CUDA "Enable CUDA-accelerated training " OFF)
 option(USE_ROCM "Enable ROCm-accelerated training " OFF)
+option(ENABLE_MULTI_GPU "Build with support for multi-GPU training" ON)
 option(USE_DEBUG "Set to ON for Debug mode" OFF)
 option(USE_SANITIZER "Use sanitizer flags" OFF)
 set(
@@ -185,6 +186,22 @@ endif()
 
 if(USE_ROCM)
     enable_language(HIP)
+    if(ENABLE_MULTI_GPU)
+      find_package(rccl REQUIRED)
+      find_path(RCCL_INCLUDE_DIR
+        NAMES rccl/rccl.h
+        HINTS ${RCCL_INCLUDE_DIRS})
+      if(NOT RCCL_INCLUDE_DIR)
+        message(FATAL_ERROR
+          "RCCL headers were not found. Set RCCL_INCLUDE_DIR or disable multi-GPU support"
+          " with -DENABLE_MULTI_GPU=OFF.")
+      endif()
+      if(NOT RCCL_LIBRARY)
+        message(FATAL_ERROR
+          "RCCL library was not found. Set RCCL_LIBRARY or disable multi-GPU support"
+          " with -DENABLE_MULTI_GPU=OFF.")
+      endif()
+    endif()
     set(USE_OPENMP ON CACHE BOOL "ROCm requires OpenMP" FORCE)
 endif()
 
@@ -240,7 +257,9 @@ if(__INTEGRATE_OPENCL)
 endif()
 
 if(USE_CUDA)
-    find_package(NCCL REQUIRED)
+    if(ENABLE_MULTI_GPU)
+      find_package(NCCL REQUIRED)
+    endif()
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
     set(
       CMAKE_CUDA_FLAGS
@@ -290,6 +309,10 @@ if(USE_ROCM)
     # Exceptions to this will be guarded by USE_ROCM.
     add_definitions(-DUSE_CUDA)
     add_definitions(-DUSE_ROCM)
+endif()
+
+if((USE_CUDA OR USE_ROCM) AND ENABLE_MULTI_GPU)
+    add_definitions(-DUSE_MULTI_GPU)
 endif()
 
 include(CheckCXXSourceCompiles)
@@ -442,7 +465,6 @@ set(
     LGBM_CUDA_SOURCES
       src/boosting/cuda/cuda_score_updater.cpp
       src/boosting/cuda/cuda_score_updater.cu
-      src/boosting/cuda/nccl_gbdt.cpp
       src/metric/cuda/cuda_binary_metric.cpp
       src/metric/cuda/cuda_pointwise_metric.cpp
       src/metric/cuda/cuda_regression_metric.cpp
@@ -478,6 +500,9 @@ set(
 
 if(USE_CUDA OR USE_ROCM)
   list(APPEND LGBM_SOURCES ${LGBM_CUDA_SOURCES})
+  if(ENABLE_MULTI_GPU)
+    list(APPEND LGBM_SOURCES src/boosting/cuda/nccl_gbdt.cpp)
+  endif()
 endif()
 
 if(USE_ROCM)
@@ -649,13 +674,16 @@ if(USE_GPU)
   target_link_libraries(lightgbm_objs PUBLIC ${OpenCL_LIBRARY} ${Boost_LIBRARIES})
 endif()
 
-if(USE_CUDA)
+if(USE_CUDA AND ENABLE_MULTI_GPU)
   target_link_libraries(lightgbm_objs PUBLIC NCCL::NCCL)
+  target_link_libraries(lightgbm_capi_objs PRIVATE NCCL::NCCL)
 endif()
 
-if(USE_ROCM)
-  find_package(rccl)
+if(USE_ROCM AND ENABLE_MULTI_GPU)
+  target_include_directories(lightgbm_objs PUBLIC ${RCCL_INCLUDE_DIR})
   target_link_libraries(lightgbm_objs PUBLIC ${RCCL_LIBRARY})
+  target_include_directories(lightgbm_capi_objs PRIVATE ${RCCL_INCLUDE_DIR})
+  target_link_libraries(lightgbm_capi_objs PRIVATE ${RCCL_LIBRARY})
 endif()
 
 if(__INTEGRATE_OPENCL)
@@ -754,6 +782,9 @@ if(BUILD_CPP_TEST)
   endif()
   add_executable(testlightgbm ${CPP_TEST_SOURCES})
   target_link_libraries(testlightgbm PRIVATE lightgbm_objs lightgbm_capi_objs nanoarrow_static GTest::GTest)
+  if(USE_CUDA)
+    set_target_properties(testlightgbm PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  endif()
 endif()
 
 if(BUILD_CLI)

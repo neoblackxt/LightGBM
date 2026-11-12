@@ -12,7 +12,7 @@
 #include "nccl_gbdt.hpp"
 #include "nccl_gbdt_component.hpp"
 
-#ifdef USE_CUDA
+#ifdef USE_MULTI_GPU
 
 namespace LightGBM {
 
@@ -207,4 +207,4 @@ template class NCCLGBDT<GBDT>;
 
 }  // namespace LightGBM
 
-#endif  // USE_CUDA
+#endif  // USE_MULTI_GPU

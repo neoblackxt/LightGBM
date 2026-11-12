@@ -27,7 +27,7 @@
 
 namespace LightGBM {
 
-class CUDADataPartition: public NCCLInfo {
+class CUDADataPartition {
  public:
   CUDADataPartition(
     const Dataset* train_data,
@@ -40,6 +40,17 @@ class CUDADataPartition: public NCCLInfo {
   ~CUDADataPartition();
 
   void Init();
+
+  #ifdef USE_MULTI_GPU
+  void SetNCCLInfo(
+    ncclComm_t nccl_communicator,
+    int nccl_gpu_rank,
+    int local_gpu_rank,
+    int /*gpu_device_id*/,
+    data_size_t global_num_data) {
+    nccl_info_.SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, global_num_data);
+  }
+  #endif  // USE_MULTI_GPU
 
   void BeforeTrain();
 
@@ -105,6 +116,18 @@ class CUDADataPartition: public NCCLInfo {
   bool use_bagging() const { return use_bagging_; }
 
  private:
+  bool UseNCCL() const {
+    #ifdef USE_MULTI_GPU
+    return nccl_info_.nccl_communicator() != nullptr;
+    #else
+    return false;
+    #endif  // USE_MULTI_GPU
+  }
+
+  #ifdef USE_MULTI_GPU
+  NCCLInfo nccl_info_;
+  #endif  // USE_MULTI_GPU
+
   void CalcBlockDim(const data_size_t num_data_in_leaf);
 
   void GenDataToLeftBitVector(

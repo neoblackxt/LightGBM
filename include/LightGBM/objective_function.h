@@ -119,12 +119,14 @@ class ObjectiveFunction {
 
   virtual bool NeedConvertOutputCUDA () const { return false; }
 
+  #ifdef USE_MULTI_GPU
   virtual void SetNCCLInfo(
     ncclComm_t /*nccl_communicator*/,
     int /*nccl_gpu_rank*/,
     int /*local_gpu_rank*/,
     int /*gpu_device_id*/,
     data_size_t /*global_num_data*/) {}
+  #endif  // USE_MULTI_GPU
 
   /*!
   * \brief Create object of objective function on CUDA

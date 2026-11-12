@@ -24,7 +24,7 @@ namespace LightGBM {
 
 #define CUDA_SINGLE_GPU_TREE_LEARNER_BLOCK_SIZE (1024)
 
-class CUDASingleGPUTreeLearner: public SerialTreeLearner, public NCCLInfo {
+class CUDASingleGPUTreeLearner: public SerialTreeLearner {
  public:
   explicit CUDASingleGPUTreeLearner(const Config* config, const bool boosting_on_cuda);
 
@@ -53,12 +53,14 @@ class CUDASingleGPUTreeLearner: public SerialTreeLearner, public NCCLInfo {
 
   void ResetBoostingOnGPU(const bool boosting_on_gpu) override;
 
+  #ifdef USE_MULTI_GPU
   void SetNCCLInfo(
     ncclComm_t nccl_communicator,
     int nccl_gpu_rank,
     int local_gpu_rank,
     int gpu_device_id,
-    data_size_t global_num_data) override;
+    data_size_t global_num_data);
+  #endif  // USE_MULTI_GPU
 
  protected:
   void BeforeTrain() override;
@@ -86,10 +88,22 @@ class CUDASingleGPUTreeLearner: public SerialTreeLearner, public NCCLInfo {
 
   void LaunchCalcLeafValuesGivenGradStat(CUDATree* cuda_tree, const data_size_t* num_data_in_leaf);
 
+  #ifdef USE_MULTI_GPU
   void NCCLReduceHistogram();
+  #endif  // USE_MULTI_GPU
+
+  bool UseNCCL() const {
+    #ifdef USE_MULTI_GPU
+    return nccl_info_.nccl_communicator() != nullptr;
+    #else
+    return false;
+    #endif  // USE_MULTI_GPU
+  }
 
   // number of threads on CPU
   int num_threads_;
+  // local GPU device used by both single-GPU and multi-GPU training
+  int gpu_device_id_ = -1;
 
   // CUDA components for tree training
 
@@ -142,9 +156,12 @@ class CUDASingleGPUTreeLearner: public SerialTreeLearner, public NCCLInfo {
   /*! \brief whether boosting is done on CUDA */
   bool boosting_on_cuda_;
 
-  // members used in multi-GPU training
+  #ifdef USE_MULTI_GPU
+  NCCLInfo nccl_info_;
   /*! \brief cuda stream for nccl operations */
   cudaStream_t nccl_stream_;
+  #endif  // USE_MULTI_GPU
+  // members used in multi-GPU training
   /*! \brief index map from leaf index to histogram index */
   std::vector<int> leaf_to_hist_index_map_;
   /*! \brief number of total histogram bins */

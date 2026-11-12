@@ -26,13 +26,24 @@ namespace LightGBM {
 
 #define CUDA_GRADIENT_DISCRETIZER_BLOCK_SIZE (1024)
 
-class CUDAGradientDiscretizer: public GradientDiscretizer, public NCCLInfo {
+class CUDAGradientDiscretizer: public GradientDiscretizer {
  public:
   CUDAGradientDiscretizer(int num_grad_quant_bins, int num_trees, int random_seed, bool is_constant_hessian, bool stochastic_roudning):
     GradientDiscretizer(num_grad_quant_bins, num_trees, random_seed, is_constant_hessian, stochastic_roudning) {
   }
 
   ~CUDAGradientDiscretizer() {}
+
+  #ifdef USE_MULTI_GPU
+  void SetNCCLInfo(
+    ncclComm_t nccl_communicator,
+    int nccl_gpu_rank,
+    int local_gpu_rank,
+    int /*gpu_device_id*/,
+    data_size_t global_num_data) {
+    nccl_info_.SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, global_num_data);
+  }
+  #endif  // USE_MULTI_GPU
 
   void DiscretizeGradients(
     const data_size_t num_data,
@@ -104,6 +115,18 @@ class CUDAGradientDiscretizer: public GradientDiscretizer, public NCCLInfo {
   }
 
  protected:
+  bool UseNCCL() const {
+    #ifdef USE_MULTI_GPU
+    return nccl_info_.nccl_communicator() != nullptr;
+    #else
+    return false;
+    #endif  // USE_MULTI_GPU
+  }
+
+  #ifdef USE_MULTI_GPU
+  NCCLInfo nccl_info_;
+  #endif  // USE_MULTI_GPU
+
   mutable CUDAVector<int8_t> discretized_gradients_and_hessians_;
   mutable CUDAVector<score_t> grad_min_block_buffer_;
   mutable CUDAVector<score_t> grad_max_block_buffer_;

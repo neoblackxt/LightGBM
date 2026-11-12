@@ -102,21 +102,27 @@ double CUDABinaryLogloss::LaunchCalcInitScoreKernel(const int /*class_id*/) cons
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
   if (cuda_weights_ == nullptr) {
-    if (nccl_communicator_ == nullptr) {
+    if (!UseNCCL()) {
       BoostFromScoreKernel_2_BinaryLogloss<false><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
-    } else {
-      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
-      const data_size_t global_num_data = NCCLAllReduce<data_size_t>(num_data_, ncclInt32, ncclSum, nccl_communicator_);
+    }
+    #ifdef USE_MULTI_GPU
+    if (UseNCCL()) {
+      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator());
+      const data_size_t global_num_data = NCCLAllReduce<data_size_t>(num_data_, ncclInt32, ncclSum, nccl_info_.nccl_communicator());
       BoostFromScoreKernel_2_BinaryLogloss<false><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), global_num_data, sigmoid_);
     }
+    #endif  // USE_MULTI_GPU
   } else {
-    if (nccl_communicator_ == nullptr) {
-      BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
-    } else {
-      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
-      NCCLAllReduce<double>(cuda_sum_weights_.RawData(), cuda_sum_weights_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_);
+    if (!UseNCCL()) {
       BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
     }
+    #ifdef USE_MULTI_GPU
+    if (UseNCCL()) {
+      NCCLAllReduce<double>(cuda_boost_from_score_.RawData(), cuda_boost_from_score_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator());
+      NCCLAllReduce<double>(cuda_sum_weights_.RawData(), cuda_sum_weights_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator());
+      BoostFromScoreKernel_2_BinaryLogloss<true><<<1, 1>>>(cuda_boost_from_score_.RawData(), cuda_sum_weights_.RawData(), num_data_, sigmoid_);
+    }
+    #endif  // USE_MULTI_GPU
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
   double boost_from_score = 0.0f;
