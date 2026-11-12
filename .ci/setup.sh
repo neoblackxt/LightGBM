@@ -137,30 +137,48 @@ else  # Linux
         apt-get update
         APT_INSTALL_PACKAGES=()
 
-        # only re-install NCCL if there wasn't one already pre-installed in the image
-        # (for example, nvidia/cuda 12.9.1 images excluded it)
-        if ! apt list --installed | grep -E 'libnccl\-dev' >/dev/null 2>&1; then
-            echo "libnccl-dev not found, manually installing it"
+        if [[ ${ENABLE_MULTI_GPU:-ON} == "ON" ]]; then
+            # only re-install NCCL if there wasn't one already pre-installed in the image
+            # (for example, nvidia/cuda 12.9.1 images excluded it)
+            if ! apt list --installed | grep -E 'libnccl\-dev' >/dev/null 2>&1; then
+                echo "libnccl-dev not found, manually installing it"
 
-            # find a compatible libnccl-dev for this CUDA version
-            #
-            # (just 'apt-get install libnccl-dev' can result in mixing across CUDA versions)
-            IFS='.' read -r CUDA_MAJOR CUDA_MINOR _ <<< "${CI_CUDA_VERSION}"
-            NCCL_VERSION=$(
-                apt-cache madison libnccl-dev \
-                | awk -F'|' '{print $2}' \
-                | tr -d ' ' \
-                | grep "+cuda${CUDA_MAJOR}.${CUDA_MINOR}$" \
-                | sort -V \
-                | tail -1
-            )
+                # find a compatible libnccl-dev for this CUDA version
+                #
+                # (just 'apt-get install libnccl-dev' can result in mixing across CUDA versions)
+                IFS='.' read -r CUDA_MAJOR CUDA_MINOR _ <<< "${CI_CUDA_VERSION}"
+                NCCL_VERSION=$(
+                    apt-cache madison libnccl-dev \
+                    | awk -F'|' '{print $2}' \
+                    | tr -d ' ' \
+                    | grep "+cuda${CUDA_MAJOR}.${CUDA_MINOR}$" \
+                    | sort -V \
+                    | tail -1
+                )
 
-            APT_INSTALL_PACKAGES+=(
-                "libnccl-dev=${NCCL_VERSION}"
-                "libnccl2=${NCCL_VERSION}"
-            )
+                APT_INSTALL_PACKAGES+=(
+                    "libnccl-dev=${NCCL_VERSION}"
+                    "libnccl2=${NCCL_VERSION}"
+                )
+            else
+                echo "libnccl-dev already installed"
+            fi
         else
-            echo "libnccl-dev already installed"
+            # CUDA development images can include NCCL. Remove it so OFF jobs
+            # prove that neither its headers nor its libraries are required.
+            echo "Removing NCCL for ENABLE_MULTI_GPU=OFF"
+            apt-get purge -y libnccl-dev libnccl2
+            nccl_package_status=$(dpkg-query -W -f='${Status}' libnccl-dev libnccl2 2>/dev/null || true)
+            if grep -q 'install ok installed' <<< "${nccl_package_status}"; then
+                echo "NCCL packages must not remain installed for ENABLE_MULTI_GPU=OFF"
+                exit 1
+            fi
+            for nccl_header in /usr/include/nccl.h /usr/local/cuda/include/nccl.h; do
+                if [[ -e "${nccl_header}" ]] || [[ -L "${nccl_header}" ]]; then
+                    echo "NCCL header must not be present for ENABLE_MULTI_GPU=OFF: ${nccl_header}"
+                    exit 1
+                fi
+            done
         fi
         if [[ $COMPILER == "clang" ]]; then
             APT_INSTALL_PACKAGES+=(
