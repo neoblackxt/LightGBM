@@ -21,7 +21,7 @@ permissions:
 jobs:
   test:
     # yamllint disable-line rule:line-length
-    name: ${{ matrix.task }} ${{ matrix.cuda_version }} ${{ matrix.method }} (${{ matrix.linux_version }}, ${{ matrix.compiler }}, Python ${{ matrix.python_version }})
+    name: ${{ matrix.task }} ${{ matrix.cuda_version }} ${{ matrix.method }} multi_gpu=${{ matrix.multi_gpu }} (${{ matrix.linux_version }}, ${{ matrix.compiler }}, Python ${{ matrix.python_version }})
     # yamllint disable-line rule:line-length
     # ref: https://docs.github.com/en/actions/concepts/runners/about-larger-runners#specifications-for-gpu-larger-runners
     runs-on: github-hosted-linux-gpu-amd64
@@ -36,6 +36,7 @@ jobs:
         OS_NAME: linux
         PYTHON_VERSION: ${{ matrix.python_version }}
         TASK: ${{ matrix.task }}
+        ENABLE_MULTI_GPU: ${{ matrix.multi_gpu }}
         SKBUILD_STRICT_CONFIG: true
       options: --gpus all
     timeout-minutes: 30
@@ -51,24 +52,42 @@ jobs:
             cuda_version: "13.2.1"
             linux_version: "ubuntu24.04"
             task: cuda
+            multi_gpu: "ON"
           - method: wheel
             compiler: gcc
             python_version: "3.13"
             cuda_version: "12.9.1"
             linux_version: "ubuntu22.04"
             task: cuda
+            multi_gpu: "ON"
           - method: source
             compiler: gcc
             python_version: "3.14"
             cuda_version: "12.2.2"
             linux_version: "ubuntu22.04"
             task: cuda
+            multi_gpu: "ON"
           - method: pip
             compiler: gcc
             python_version: "3.12"
             cuda_version: "11.8.0"
             linux_version: "ubuntu20.04"
             task: cuda
+            multi_gpu: "ON"
+          - method: wheel
+            compiler: gcc
+            python_version: "3.12"
+            cuda_version: "13.2.1"
+            linux_version: "ubuntu24.04"
+            task: cuda
+            multi_gpu: "OFF"
+          - method: source
+            compiler: gcc
+            python_version: "3.12"
+            cuda_version: "13.2.1"
+            linux_version: "ubuntu24.04"
+            task: cuda
+            multi_gpu: "OFF"
     steps:
       - name: Install latest git and sudo
         run: |

@@ -4,6 +4,7 @@ set -e -E -u -o pipefail
 
 # defaults
 CONDA_ENV="test-env"
+ENABLE_MULTI_GPU=${ENABLE_MULTI_GPU:-"ON"}
 IN_UBUNTU_BASE_CONTAINER=${IN_UBUNTU_BASE_CONTAINER:-"false"}
 METHOD=${METHOD:-""}
 PRODUCES_ARTIFACTS=${PRODUCES_ARTIFACTS:-"false"}
@@ -51,6 +52,70 @@ if [[ "${TASK}" == "r-package" ]]; then
 fi
 
 cd "${BUILD_DIRECTORY}"
+
+test_cuda_off() {
+    CUDA_VISIBLE_DEVICES=0 python ./.ci/test-cuda-off.py || return 1
+    local library
+    local readelf_output
+    local ldd_output
+    library=$(echo "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.*)
+    if [[ ! -f "${library}" ]]; then
+        echo "expected exactly one installed LightGBM library"
+        return 1
+    fi
+    echo "checking dynamic dependencies of ${library}"
+    readelf_output=$(readelf -d "${library}") || return 1
+    if grep -Ei 'nccl|rccl' <<< "${readelf_output}"; then
+        echo "single-GPU-only library must not have NCCL/RCCL NEEDED entries"
+        return 1
+    fi
+    ldd_output=$(ldd "${library}") || return 1
+    if grep -Ei 'nccl|rccl' <<< "${ldd_output}"; then
+        echo "single-GPU-only library must not resolve NCCL/RCCL dependencies"
+        return 1
+    fi
+    if [[ $METHOD == "source" ]]; then
+        local build_rule_matches
+        local grep_status=0
+        build_rule_matches=$(grep -R -i -E \
+            --include='build.make' \
+            --include='flags.make' \
+            --include='link.txt' \
+            --include='*.d' \
+            --include='build.ninja' \
+            'nccl|rccl' build) || grep_status=$?
+        if [[ $grep_status -gt 1 ]]; then
+            echo "failed to inspect build rules"
+            return 1
+        fi
+        if [[ $grep_status -eq 0 ]]; then
+            echo "single-GPU-only build rules must not reference NCCL/RCCL: ${build_rule_matches}"
+            return 1
+        fi
+    fi
+}
+
+test_cuda_on_single_rank() {
+    local binary_case
+    local log_file
+    for binary_case in unweighted weighted; do
+        log_file="${BUILD_ARTIFACTSTAGINGDIRECTORY}/cuda-on-single-rank-${binary_case}.log"
+        CUDA_VISIBLE_DEVICES=0 NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,COLL \
+            python ./.ci/test-cuda-on-single-rank.py "${binary_case}" 2>&1 | tee "${log_file}" || return 1
+        if ! grep -q 'Only 1 GPUs available, using num_gpu = 1' "${log_file}"; then
+            echo "${binary_case}: did not confirm topology clamping to one GPU"
+            return 1
+        fi
+        if ! grep -q -E 'nranks 1.*Init COMPLETE' "${log_file}"; then
+            echo "${binary_case}: did not confirm NCCL communicator initialization"
+            return 1
+        fi
+        if ! grep -q 'AllReduce:' "${log_file}"; then
+            echo "${binary_case}: did not confirm an NCCL AllReduce"
+            return 1
+        fi
+    done
+}
 
 if [[ $TASK == "swig" ]]; then
     cmake -B build -S . -DUSE_SWIG=ON
@@ -248,6 +313,25 @@ elif [[ $TASK == "cuda" ]]; then
     # by default ``gpu_use_dp=false`` for efficiency. change to ``true`` here for exact results in ci tests
     sed -i'.bak' 's/gpu_use_dp = false;/gpu_use_dp = true;/' ./include/LightGBM/config.h
     grep -q 'gpu_use_dp = true' ./include/LightGBM/config.h || exit 1  # make sure that changes were really done
+    CUDA_PIP_ARGS=()
+    CUDA_BUILD_SCRIPT_ARGS=(--cuda)
+    CUDA_BUILD_SCRIPT_ENV=()
+    CUDA_CMAKE_ARGS=(-DUSE_CUDA=ON)
+    if [[ $ENABLE_MULTI_GPU == "OFF" ]]; then
+        CUDA_PIP_ARGS+=(
+            --config-settings=cmake.define.ENABLE_MULTI_GPU=OFF
+            --config-settings=cmake.define.CMAKE_DISABLE_FIND_PACKAGE_NCCL=ON
+            --config-settings=cmake.define.CMAKE_DISABLE_FIND_PACKAGE_rccl=ON
+        )
+        CUDA_BUILD_SCRIPT_ARGS+=(--no-multi-gpu)
+        CUDA_BUILD_SCRIPT_ENV+=("CMAKE_ARGS=-DCMAKE_DISABLE_FIND_PACKAGE_NCCL=ON -DCMAKE_DISABLE_FIND_PACKAGE_rccl=ON")
+        CUDA_CMAKE_ARGS+=(
+            -DENABLE_MULTI_GPU=OFF
+            -DBUILD_CPP_TEST=ON
+            -DCMAKE_DISABLE_FIND_PACKAGE_NCCL=ON
+            -DCMAKE_DISABLE_FIND_PACKAGE_rccl=ON
+        )
+    fi
     if [[ $METHOD == "pip" ]]; then
         sh ./build-python.sh sdist || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
@@ -255,15 +339,26 @@ elif [[ $TASK == "cuda" ]]; then
             -v \
             --no-deps \
             --config-settings=cmake.define.USE_CUDA=ON \
+            "${CUDA_PIP_ARGS[@]}" \
             "./dist/lightgbm-${LGB_VER}.tar.gz" \
         || exit 1
+        if [[ $ENABLE_MULTI_GPU == "OFF" ]]; then
+            test_cuda_off || exit 1
+        else
+            test_cuda_on_single_rank || exit 1
+        fi
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest "${PYTEST_ARGS[@]}" ./tests/python_package_test || exit 1
         exit 0
     elif [[ $METHOD == "wheel" ]]; then
-        sh ./build-python.sh bdist_wheel --cuda || exit 1
+        env "${CUDA_BUILD_SCRIPT_ENV[@]}" sh ./build-python.sh bdist_wheel "${CUDA_BUILD_SCRIPT_ARGS[@]}" || exit 1
         sh ./.ci/check-python-dists.sh ./dist || exit 1
         pip install -v --no-deps "$(echo "./dist/lightgbm-${LGB_VER}"*.whl)" || exit 1
+        if [[ $ENABLE_MULTI_GPU == "OFF" ]]; then
+            test_cuda_off || exit 1
+        else
+            test_cuda_on_single_rank || exit 1
+        fi
         ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.* || exit 1
         pytest "${PYTEST_ARGS[@]}" ./tests || exit 1
         exit 0
@@ -272,7 +367,7 @@ elif [[ $TASK == "cuda" ]]; then
         cmake \
             -B build \
             -S . \
-            -DUSE_CUDA=ON \
+            "${CUDA_CMAKE_ARGS[@]}" \
             -DCMAKE_CUDA_ARCHITECTURES="native"
     fi
 elif [[ $TASK == "mpi" ]]; then
@@ -307,7 +402,11 @@ fi
 #   _lightgbm = lib_lightgbm.{dylib,so}
 #   _ lightgbm = the CLI (for distributed tests)
 #
-cmake --build build --target _lightgbm lightgbm -j4 || exit 1
+BUILD_TARGETS=(_lightgbm lightgbm)
+if [[ $TASK == "cuda" ]] && [[ $ENABLE_MULTI_GPU == "OFF" ]]; then
+    BUILD_TARGETS+=(testlightgbm)
+fi
+cmake --build build --target "${BUILD_TARGETS[@]}" -j4 || exit 1
 
 sh ./build-python.sh install --precompile || exit 1
 
@@ -322,6 +421,15 @@ if [[ "${TASK}" != "mpi" ]]; then
 fi
 
 python ./.ci/test-imports.py
+
+if [[ $TASK == "cuda" ]]; then
+    if [[ $ENABLE_MULTI_GPU == "OFF" ]]; then
+        ./testlightgbm || exit 1
+        test_cuda_off || exit 1
+    else
+        test_cuda_on_single_rank || exit 1
+    fi
+fi
 
 echo "running tests"
 ./.ci/check-abi.sh "${SITE_PACKAGES}"/lightgbm/lib/lib_lightgbm.*
