@@ -242,7 +242,10 @@ endif()
 if(USE_CUDA)
     find_package(NCCL REQUIRED)
     include_directories(${CUDAToolkit_INCLUDE_DIRS})
-    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=${OpenMP_CXX_FLAGS} -Xcompiler=-fPIC -Xcompiler=-Wall")
+    set(
+      CMAKE_CUDA_FLAGS
+      "${CMAKE_CUDA_FLAGS} -Xcompiler=${OpenMP_CXX_FLAGS} -Xcompiler=-fPIC -Xcompiler=-Wall -DFMT_UNICODE=0"
+    )
     if(USE_DEBUG)
       set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -g")
     else()
