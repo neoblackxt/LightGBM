@@ -700,14 +700,23 @@ Build CUDA Version
 
 The `original GPU version <#build-gpu-version>`__ of LightGBM (``device_type=gpu``) is based on OpenCL, and only computes histograms on GPUs, with other parts of training in CPUs.
 
-The CUDA-based version (``device_type=cuda``) is a separate implementation that runs significantly faster by putting all the training process on GPUs. It also supports multi-GPU, and multi-node multi-GPU training.
-Use this version in Linux environments with an NVIDIA GPU with compute capability 6.0 or higher.
+The CUDA-based version (``device_type=cuda``) is a separate implementation that runs significantly faster by putting all the training process on GPUs. On Linux, it also supports multi-GPU and multi-node multi-GPU training.
+Use this version with an NVIDIA GPU with compute capability 6.0 or higher; platform-specific requirements are described below.
+
+Multi-GPU support is enabled by default and requires NCCL.
+To build only single-GPU support without NCCL, set ``ENABLE_MULTI_GPU=OFF``:
+
+.. code:: sh
+
+   cmake -B build -S . -DUSE_CUDA=ON -DENABLE_MULTI_GPU=OFF
+
+Such builds reject GBDT training requests with ``device_type=cuda`` and ``num_gpu>1`` instead of silently falling back to single-GPU training.
 
 Windows
 ^^^^^^^
 
-The CUDA version is not supported on Windows.
-Use the `GPU version <#build-gpu-version>`__ (``device_type=gpu``) for GPU acceleration on Windows.
+The CUDA version supports single-GPU training on Windows when built with ``ENABLE_MULTI_GPU=OFF``.
+Multi-GPU training requires NCCL and is not supported on Windows.
 
 Linux
 ^^^^^
@@ -776,6 +785,13 @@ Build ROCm Version
 The `original GPU version <#build-gpu-version>`__ of LightGBM (``device_type=gpu``) is based on OpenCL.
 
 The ROCm-based version (``device_type=cuda``) is a separate implementation. Yes, the ROCm version reuses the ``device_type=cuda`` as a convenience for users.  Use this version in Linux environments with an AMD GPU.
+
+Multi-GPU support is enabled by default and requires RCCL.
+To build only single-GPU support without RCCL, set ``ENABLE_MULTI_GPU=OFF``:
+
+.. code:: sh
+
+   cmake -B build -S . -DUSE_ROCM=ON -DENABLE_MULTI_GPU=OFF
 
 Windows
 ^^^^^^^

@@ -49,6 +49,8 @@
 #     --no-isolation
 #                                   Assume all build and install dependencies are already installed,
 #                                   don't go to the internet to get them.
+#     --no-multi-gpu
+#                                   Compile CUDA or ROCm version without multi-GPU support.
 #     --nomp
 #                                   Compile version without OpenMP support.
 #     --precompile
@@ -164,6 +166,9 @@ while [ $# -gt 0 ]; do
     --no-isolation)
         BUILD_ARGS="${BUILD_ARGS} --no-isolation"
         PIP_INSTALL_ARGS="${PIP_INSTALL_ARGS} --no-build-isolation"
+        ;;
+    --no-multi-gpu)
+        BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.ENABLE_MULTI_GPU=OFF"
         ;;
     --nomp)
         BUILD_ARGS="${BUILD_ARGS} --config-setting=cmake.define.USE_OPENMP=OFF"
