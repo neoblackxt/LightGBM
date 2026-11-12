@@ -12,12 +12,18 @@
 
 #if defined(USE_ROCM)
 #include <LightGBM/cuda/cuda_rocm_interop.h>
-#include <rccl/rccl.h>
 #else
 #include <cuda.h>
 #include <cuda_runtime.h>
+#endif
+
+#ifdef USE_MULTI_GPU
+#if defined(USE_ROCM)
+#include <rccl/rccl.h>
+#else
 #include <nccl.h>
 #endif
+#endif  // USE_MULTI_GPU
 #include <stdio.h>
 
 #include <LightGBM/utils/log.h>
@@ -41,6 +47,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
 
 #define CUDASUCCESS_OR_FATAL_OUTER(ans) { gpuAssert((ans), file, line); }
 
+#ifdef USE_MULTI_GPU
 #define NCCLCHECK(cmd) do {                         \
   ncclResult_t r = cmd;                             \
   if (r!= ncclSuccess) {                            \
@@ -49,6 +56,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
     exit(EXIT_FAILURE);                             \
   }                                                 \
 } while(0)
+#endif  // USE_MULTI_GPU
 
 void SetCUDADevice(int gpu_device_id, const char* file, int line);
 
@@ -243,43 +251,43 @@ static __device__ T SafeLog(T x) {
   }
 }
 
+#ifdef USE_MULTI_GPU
 class NCCLInfo {
  public:
-  NCCLInfo() {
-    nccl_communicator_ = nullptr;
-    nccl_gpu_rank_ = -1;
-    local_gpu_rank_ = -1;
-    gpu_device_id_ = -1;
-    num_gpu_in_node_ = 0;
-    global_num_data_ = 0;
-  }
-
-  virtual void SetNCCLInfo(
+  void SetNCCLInfo(
     ncclComm_t nccl_communicator,
     int nccl_gpu_rank,
     int local_gpu_rank,
-    int gpu_device_id,
     data_size_t global_num_data) {
     nccl_communicator_ = nccl_communicator;
     nccl_gpu_rank_ = nccl_gpu_rank;
     local_gpu_rank_ = local_gpu_rank;
-    gpu_device_id_ = gpu_device_id;
     global_num_data_ = global_num_data;
   }
 
- protected:
+  ncclComm_t nccl_communicator() const { return nccl_communicator_; }
+
+  int nccl_gpu_rank() const { return nccl_gpu_rank_; }
+
+  int local_gpu_rank() const { return local_gpu_rank_; }
+
+  data_size_t global_num_data() const { return global_num_data_; }
+
+ private:
+  // The communicator is a non-owning handle. NCCLTopology remains responsible
+  // for its lifetime; copying this context must not destroy the communicator.
   ncclComm_t nccl_communicator_ = nullptr;
   int nccl_gpu_rank_ = -1;
   int local_gpu_rank_ = -1;
-  int gpu_device_id_ = -1;
-  int num_gpu_in_node_ = 0;
   data_size_t global_num_data_ = 0;
 };
+#endif  // USE_MULTI_GPU
 
 cudaStream_t CUDAStreamCreate();
 
 void CUDAStreamDestroy(cudaStream_t cuda_stream);
 
+#ifdef USE_MULTI_GPU
 void NCCLGroupStart();
 
 void NCCLGroupEnd();
@@ -317,6 +325,7 @@ T NCCLAllReduce(T send_value, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_
   CopyFromCUDADeviceToHost<T>(&recv_value, send_buffer.RawDataReadOnly(), 1, __FILE__, __LINE__);
   return recv_value;
 }
+#endif  // USE_MULTI_GPU
 
 }  // namespace LightGBM
 

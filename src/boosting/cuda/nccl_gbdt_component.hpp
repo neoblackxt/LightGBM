@@ -7,7 +7,7 @@
 #ifndef LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_COMPONENT_HPP_
 #define LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_COMPONENT_HPP_
 
-#ifdef USE_CUDA
+#ifdef USE_MULTI_GPU
 
 #include <LightGBM/objective_function.h>
 #include <LightGBM/tree.h>
@@ -22,16 +22,26 @@
 
 namespace LightGBM {
 
-class NCCLGBDTComponent: public NCCLInfo {
+class NCCLGBDTComponent {
  public:
   NCCLGBDTComponent() {}
 
   ~NCCLGBDTComponent() {}
 
+  void SetNCCLInfo(
+    ncclComm_t nccl_communicator,
+    int nccl_gpu_rank,
+    int local_gpu_rank,
+    int gpu_device_id,
+    data_size_t global_num_data) {
+    gpu_device_id_ = gpu_device_id;
+    nccl_info_.SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, global_num_data);
+  }
+
   void Init(const Config* config, const Dataset* train_data, const int num_tree_per_iteration, const bool boosting_on_gpu, const bool is_constant_hessian) {
     CUDASUCCESS_OR_FATAL(cudaGetDeviceCount(&num_gpu_in_node_));
     const data_size_t num_data_per_gpu = (train_data->num_data() + num_gpu_in_node_ - 1) / num_gpu_in_node_;
-    data_start_index_ = num_data_per_gpu * local_gpu_rank_;
+    data_start_index_ = num_data_per_gpu * nccl_info_.local_gpu_rank();
     data_end_index_ = std::min<data_size_t>(data_start_index_ + num_data_per_gpu, train_data->num_data());
     num_data_in_gpu_ = data_end_index_ - data_start_index_;
 
@@ -45,13 +55,13 @@ class NCCLGBDTComponent: public NCCLInfo {
     dataset_->CopySubrowToDevice(train_data, used_indices.data(), num_data_in_gpu_, true, gpu_device_id_);
 
     objective_function_.reset(ObjectiveFunction::CreateObjectiveFunctionCUDA(config->objective, *config));
-    objective_function_->SetNCCLInfo(nccl_communicator_, nccl_gpu_rank_, local_gpu_rank_, gpu_device_id_, train_data->num_data());
+    objective_function_->SetNCCLInfo(nccl_info_.nccl_communicator(), nccl_info_.nccl_gpu_rank(), nccl_info_.local_gpu_rank(), gpu_device_id_, train_data->num_data());
     train_score_updater_.reset(new CUDAScoreUpdater(dataset_.get(), num_tree_per_iteration, boosting_on_gpu));
     gradients_.reset(new CUDAVector<score_t>(num_data_in_gpu_));
     hessians_.reset(new CUDAVector<score_t>(num_data_in_gpu_));
     tree_learner_.reset(new CUDASingleGPUTreeLearner(config, boosting_on_gpu));
 
-    tree_learner_->SetNCCLInfo(nccl_communicator_, nccl_gpu_rank_, local_gpu_rank_, gpu_device_id_, train_data->num_data());
+    tree_learner_->SetNCCLInfo(nccl_info_.nccl_communicator(), nccl_info_.nccl_gpu_rank(), nccl_info_.local_gpu_rank(), gpu_device_id_, train_data->num_data());
 
     objective_function_->Init(dataset_->metadata(), dataset_->num_data());
     tree_learner_->Init(dataset_.get(), is_constant_hessian);
@@ -84,6 +94,10 @@ class NCCLGBDTComponent: public NCCLInfo {
   void clear_new_tree() { new_tree_.reset(nullptr); }
 
  private:
+  NCCLInfo nccl_info_;
+  int gpu_device_id_ = -1;
+  int num_gpu_in_node_ = 0;
+
   std::unique_ptr<ObjectiveFunction> objective_function_;
   std::unique_ptr<ScoreUpdater> train_score_updater_;
   std::unique_ptr<CUDAVector<score_t>> gradients_;
@@ -99,6 +113,6 @@ class NCCLGBDTComponent: public NCCLInfo {
 
 }  // namespace LightGBM
 
-#endif  // USE_CUDA
+#endif  // USE_MULTI_GPU
 
 #endif  // LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_COMPONENT_HPP_

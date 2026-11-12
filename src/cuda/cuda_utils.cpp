@@ -48,6 +48,7 @@ void CUDAStreamDestroy(cudaStream_t cuda_stream) {
   CUDASUCCESS_OR_FATAL(cudaStreamDestroy(cuda_stream));
 }
 
+#ifdef USE_MULTI_GPU
 void NCCLGroupStart() {
   NCCLCHECK(ncclGroupStart());
 }
@@ -55,6 +56,7 @@ void NCCLGroupStart() {
 void NCCLGroupEnd() {
   NCCLCHECK(ncclGroupEnd());
 }
+#endif  // USE_MULTI_GPU
 
 }  // namespace LightGBM
 

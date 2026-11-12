@@ -7,7 +7,7 @@
 #ifndef LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_HPP_
 #define LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_HPP_
 
-#ifdef USE_CUDA
+#ifdef USE_MULTI_GPU
 
 // pthread.h is not needed by this header (threads use std::thread) and does
 // not exist on Windows.
@@ -146,5 +146,5 @@ class NCCLGBDT: public GBDT_T {
 
 }  // namespace LightGBM
 
-#endif  // USE_CUDA
+#endif  // USE_MULTI_GPU
 #endif  // LIGHTGBM_SRC_BOOSTING_CUDA_NCCL_GBDT_HPP_

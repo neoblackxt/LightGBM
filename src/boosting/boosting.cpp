@@ -12,9 +12,9 @@
 #include "gbdt.h"
 #include "rf.hpp"
 
-#ifdef USE_CUDA
+#ifdef USE_MULTI_GPU
 #include "cuda/nccl_gbdt.hpp"
-#endif  // USE_CUDA
+#endif  // USE_MULTI_GPU
 
 namespace LightGBM {
 
@@ -49,17 +49,23 @@ Boosting* Boosting::CreateBoosting(const std::string& type, const char* filename
   num_gpu
   #endif  // USE_CUDA
   ) {
+  #if defined(USE_CUDA) && !defined(USE_MULTI_GPU)
+  if (type == std::string("gbdt") && device_type == std::string("cuda") && num_gpu > 1) {
+    Log::Fatal("Multi-GPU training is not available in this LightGBM build. "
+               "Rebuild with a supported GPU backend and -DENABLE_MULTI_GPU=ON.");
+  }
+  #endif  // defined(USE_CUDA) && !defined(USE_MULTI_GPU)
   if (filename == nullptr || filename[0] == '\0') {
     if (type == std::string("gbdt")) {
-      #ifdef USE_CUDA
+      #ifdef USE_MULTI_GPU
       if (device_type == std::string("cuda") && num_gpu > 1) {
         return new NCCLGBDT<GBDT>();
       } else {
-      #endif  // USE_CUDA
+      #endif  // USE_MULTI_GPU
         return new GBDT();
-      #ifdef USE_CUDA
+      #ifdef USE_MULTI_GPU
       }
-      #endif  // USE_CUDA
+      #endif  // USE_MULTI_GPU
     } else if (type == std::string("dart")) {
       return new DART();
     } else if (type == std::string("goss")) {
@@ -73,15 +79,15 @@ Boosting* Boosting::CreateBoosting(const std::string& type, const char* filename
     std::unique_ptr<Boosting> ret;
     if (GetBoostingTypeFromModelFile(filename) == std::string("tree")) {
       if (type == std::string("gbdt")) {
-        #ifdef USE_CUDA
+        #ifdef USE_MULTI_GPU
         if (device_type == std::string("cuda") && num_gpu > 1) {
           ret.reset(new NCCLGBDT<GBDT>());
         } else {
-        #endif  // USE_CUDA
+        #endif  // USE_MULTI_GPU
           ret.reset(new GBDT());
-        #ifdef USE_CUDA
+        #ifdef USE_MULTI_GPU
         }
-        #endif  // USE_CUDA
+        #endif  // USE_MULTI_GPU
       } else if (type == std::string("dart")) {
         ret.reset(new DART());
       } else if (type == std::string("goss")) {

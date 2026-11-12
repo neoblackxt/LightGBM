@@ -20,7 +20,7 @@
 namespace LightGBM {
 
 template <typename HOST_OBJECTIVE>
-class CUDAObjectiveInterface: public HOST_OBJECTIVE, public NCCLInfo {
+class CUDAObjectiveInterface: public HOST_OBJECTIVE {
  public:
   explicit CUDAObjectiveInterface(const Config& config): HOST_OBJECTIVE(config) {
     if (config.num_gpu <= 1) {
@@ -37,14 +37,16 @@ class CUDAObjectiveInterface: public HOST_OBJECTIVE, public NCCLInfo {
     cuda_weights_ = metadata.cuda_metadata()->cuda_weights();
   }
 
+  #ifdef USE_MULTI_GPU
   void SetNCCLInfo(
     ncclComm_t nccl_communicator,
     int nccl_gpu_rank,
     int local_gpu_rank,
-    int gpu_device_id,
+    int /*gpu_device_id*/,
     data_size_t global_num_data) override {
-    NCCLInfo::SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, gpu_device_id, global_num_data);
+    nccl_info_.SetNCCLInfo(nccl_communicator, nccl_gpu_rank, local_gpu_rank, global_num_data);
   }
+  #endif  // USE_MULTI_GPU
 
   virtual const double* ConvertOutputCUDA(const data_size_t num_data, const double* input, double* output) const {
     return LaunchConvertOutputCUDAKernel(num_data, input, output);
@@ -86,6 +88,18 @@ class CUDAObjectiveInterface: public HOST_OBJECTIVE, public NCCLInfo {
   virtual void LaunchRenewTreeOutputCUDAKernel(
     const double* /*score*/, const data_size_t* /*data_indices_in_leaf*/, const data_size_t* /*num_data_in_leaf*/,
     const data_size_t* /*data_start_in_leaf*/, const int /*num_leaves*/, double* /*leaf_value*/) const {}
+
+  bool UseNCCL() const {
+    #ifdef USE_MULTI_GPU
+    return nccl_info_.nccl_communicator() != nullptr;
+    #else
+    return false;
+    #endif  // USE_MULTI_GPU
+  }
+
+  #ifdef USE_MULTI_GPU
+  NCCLInfo nccl_info_;
+  #endif  // USE_MULTI_GPU
 
   const label_t* cuda_labels_;
   const label_t* cuda_weights_;

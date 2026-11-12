@@ -999,18 +999,20 @@ void CUDADataPartition::LaunchSplitInnerKernel(
   SynchronizeCUDADevice(__FILE__, __LINE__);
   global_timer.Stop("CUDADataPartition::AggregateBlockOffsetKernel");
 
-  if (nccl_communicator_ != nullptr) {
+  #ifdef USE_MULTI_GPU
+  if (UseNCCL()) {
     NCCLGroupStart();
     NCCLAllReduce<data_size_t>(
       cuda_leaf_num_data_.RawData() + left_leaf_index,
       cuda_split_info_buffer_.RawData() + 16,
-      1, ncclInt32, ncclSum, nccl_communicator_, cuda_streams_[0]);
+      1, ncclInt32, ncclSum, nccl_info_.nccl_communicator(), cuda_streams_[0]);
       NCCLAllReduce<data_size_t>(
         cuda_leaf_num_data_.RawData() + right_leaf_index,
         cuda_split_info_buffer_.RawData() + 17,
-        1, ncclInt32, ncclSum, nccl_communicator_, cuda_streams_[0]);
+        1, ncclInt32, ncclSum, nccl_info_.nccl_communicator(), cuda_streams_[0]);
     NCCLGroupEnd();
   }
+  #endif  // USE_MULTI_GPU
 
   global_timer.Start("CUDADataPartition::SplitInnerKernel");
   SplitInnerKernel<<<grid_dim_, block_dim_, 0, cuda_streams_[1]>>>(
@@ -1035,7 +1037,7 @@ void CUDADataPartition::LaunchSplitInnerKernel(
   cuda_hist_pool_.RawData(), \
   cuda_leaf_output_.RawData(), cuda_split_info_buffer_.RawData()
 
-  if (nccl_communicator_ != nullptr) {
+  if (UseNCCL()) {
     if (use_quantized_grad_) {
       SplitTreeStructureKernel<true, true><<<4, 5, 0, cuda_streams_[0]>>>(SPLIT_TREE_ARGS);
     } else {
@@ -1073,7 +1075,7 @@ void CUDADataPartition::LaunchSplitInnerKernel(
   *right_leaf_sum_of_hessians_ref = cpu_sum_hessians_info[1];
   *left_leaf_sum_of_gradients_ref = cpu_sum_hessians_info[2];
   *right_leaf_sum_of_gradients_ref = cpu_sum_hessians_info[3];
-  if (nccl_communicator_ != nullptr) {
+  if (UseNCCL()) {
     *global_left_leaf_num_data = cpu_split_info_buffer[16];
     *global_right_leaf_num_data = cpu_split_info_buffer[17];
   }

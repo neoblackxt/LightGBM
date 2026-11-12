@@ -330,14 +330,15 @@ void CUDALeafSplits::LaunchInitValuesKernel(
   }
   SynchronizeCUDADevice(__FILE__, __LINE__);
 
-  if (nccl_communicator_ != nullptr) {
+  #ifdef USE_MULTI_GPU
+  if (UseNCCL()) {
     ReduceGradKernel<<<1, NUM_THREADS_PER_BLOCK_LEAF_SPLITS>>>(num_blocks_init_from_gradients_, cuda_sum_of_gradients_buffer_.RawData(),
       cuda_sum_of_hessians_buffer_.RawData(), num_used_indices);
     SynchronizeCUDADevice(__FILE__, __LINE__);
     cudaStream_t cuda_stream = CUDAStreamCreate();
     NCCLGroupStart();
-    NCCLAllReduce<double>(cuda_sum_of_gradients_buffer_.RawData(), cuda_sum_of_gradients_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_, cuda_stream);
-    NCCLAllReduce<double>(cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_hessians_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_, cuda_stream);
+    NCCLAllReduce<double>(cuda_sum_of_gradients_buffer_.RawData(), cuda_sum_of_gradients_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator(), cuda_stream);
+    NCCLAllReduce<double>(cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_hessians_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator(), cuda_stream);
     NCCLGroupEnd();
     SynchronizeCUDAStream(cuda_stream, __FILE__, __LINE__);
     CUDAStreamDestroy(cuda_stream);
@@ -345,6 +346,7 @@ void CUDALeafSplits::LaunchInitValuesKernel(
       cuda_sum_of_hessians_buffer_.RawData(), num_used_indices,
       cuda_data_indices_in_leaf, cuda_hist_in_leaf, cuda_struct_.RawData());
   } else {
+  #endif  // USE_MULTI_GPU
     CUDAInitValuesKernel2<<<1, NUM_THREADS_PER_BLOCK_LEAF_SPLITS>>>(
       lambda_l1, lambda_l2,
       num_blocks_init_from_gradients_,
@@ -354,7 +356,9 @@ void CUDALeafSplits::LaunchInitValuesKernel(
       cuda_data_indices_in_leaf,
       cuda_hist_in_leaf,
       cuda_struct_.RawData());
+  #ifdef USE_MULTI_GPU
   }
+  #endif  // USE_MULTI_GPU
   SynchronizeCUDADevice(__FILE__, __LINE__);
 }
 
@@ -378,7 +382,8 @@ void CUDALeafSplits::LaunchInitValuesKernel(
 
   SynchronizeCUDADevice(__FILE__, __LINE__);
 
-  if (nccl_communicator_ != nullptr) {
+  #ifdef USE_MULTI_GPU
+  if (UseNCCL()) {
     ReduceGradKernel<<<1, NUM_THREADS_PER_BLOCK_LEAF_SPLITS>>>(num_blocks_init_from_gradients_,
       cuda_sum_of_gradients_buffer_.RawData(), cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_gradients_hessians_buffer_.RawData(),
       num_used_indices);
@@ -386,9 +391,9 @@ void CUDALeafSplits::LaunchInitValuesKernel(
 
     cudaStream_t cuda_stream = CUDAStreamCreate();
     NCCLGroupStart();
-    NCCLAllReduce<double>(cuda_sum_of_gradients_buffer_.RawData(), cuda_sum_of_gradients_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_, cuda_stream);
-    NCCLAllReduce<double>(cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_hessians_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_communicator_, cuda_stream);
-    NCCLAllReduce<int64_t>(cuda_sum_of_gradients_hessians_buffer_.RawData(), cuda_sum_of_gradients_hessians_buffer_.RawData(), 1, ncclInt64, ncclSum, nccl_communicator_, cuda_stream);
+    NCCLAllReduce<double>(cuda_sum_of_gradients_buffer_.RawData(), cuda_sum_of_gradients_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator(), cuda_stream);
+    NCCLAllReduce<double>(cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_hessians_buffer_.RawData(), 1, ncclFloat64, ncclSum, nccl_info_.nccl_communicator(), cuda_stream);
+    NCCLAllReduce<int64_t>(cuda_sum_of_gradients_hessians_buffer_.RawData(), cuda_sum_of_gradients_hessians_buffer_.RawData(), 1, ncclInt64, ncclSum, nccl_info_.nccl_communicator(), cuda_stream);
     NCCLGroupEnd();
     SynchronizeCUDAStream(cuda_stream, __FILE__, __LINE__);
     CUDAStreamDestroy(cuda_stream);
@@ -396,6 +401,7 @@ void CUDALeafSplits::LaunchInitValuesKernel(
       cuda_sum_of_hessians_buffer_.RawData(), cuda_sum_of_gradients_hessians_buffer_.RawData(), num_used_indices,
       cuda_data_indices_in_leaf, cuda_hist_in_leaf, cuda_struct_.RawData());
   } else {
+  #endif  // USE_MULTI_GPU
     CUDAInitValuesKernel4<<<1, NUM_THREADS_PER_BLOCK_LEAF_SPLITS>>>(
       lambda_l1, lambda_l2,
       num_blocks_init_from_gradients_,
@@ -406,7 +412,9 @@ void CUDALeafSplits::LaunchInitValuesKernel(
       cuda_data_indices_in_leaf,
       cuda_hist_in_leaf,
       cuda_struct_.RawData());
+  #ifdef USE_MULTI_GPU
   }
+  #endif  // USE_MULTI_GPU
   SynchronizeCUDADevice(__FILE__, __LINE__);
 }
 
